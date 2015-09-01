@@ -65,6 +65,8 @@ final class PhabricatorTriggerDaemon
     $this->nextCollection = PhabricatorTime::getNow();
 
     do {
+      PhabricatorCaches::destroyRequestCache();
+
       $lock = PhabricatorGlobalLock::newLock('trigger');
 
       try {
@@ -383,9 +385,9 @@ final class PhabricatorTriggerDaemon
    * @task garbage
    */
   private function loadGarbageCollectors() {
-    return id(new PhutilSymbolLoader())
+    return id(new PhutilClassMapQuery())
       ->setAncestorClass('PhabricatorGarbageCollector')
-      ->loadObjects();
+      ->execute();
   }
 
 

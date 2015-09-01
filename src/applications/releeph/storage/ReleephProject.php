@@ -18,12 +18,10 @@ final class ReleephProject extends ReleephDAO
   protected $repositoryPHID;
   protected $isActive;
   protected $createdByUserPHID;
-  protected $arcanistProjectID;
 
   protected $details = array();
 
   private $repository = self::ATTACHABLE;
-  private $arcanistProject = self::ATTACHABLE;
 
   protected function getConfiguration() {
     return array(
@@ -35,7 +33,6 @@ final class ReleephProject extends ReleephDAO
         'name' => 'text128',
         'trunkBranch' => 'text255',
         'isActive' => 'bool',
-        'arcanistProjectID' => 'id?',
       ),
       self::CONFIG_KEY_SCHEMA => array(
         'projectName' => array(
@@ -65,16 +62,6 @@ final class ReleephProject extends ReleephDAO
 
   public function setDetail($key, $value) {
     $this->details[$key] = $value;
-    return $this;
-  }
-
-  public function getArcanistProject() {
-    return $this->assertAttached($this->arcanistProject);
-  }
-
-  public function attachArcanistProject(
-    PhabricatorRepositoryArcanistProject $arcanist_project = null) {
-    $this->arcanistProject = $arcanist_project;
     return $this;
   }
 

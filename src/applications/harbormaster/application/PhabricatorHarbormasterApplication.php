@@ -36,13 +36,18 @@ final class PhabricatorHarbormasterApplication extends PhabricatorApplication {
     );
   }
 
-  public function isPrototype() {
-    return true;
-  }
-
   public function getRemarkupRules() {
     return array(
       new HarbormasterRemarkupRule(),
+    );
+  }
+
+  public function getHelpDocumentationArticles(PhabricatorUser $viewer) {
+    return array(
+      array(
+        'name' => pht('Harbormaster User Guide'),
+        'href' => PhabricatorEnv::getDoclink('Harbormaster User Guide'),
+      ),
     );
   }
 
@@ -76,6 +81,12 @@ final class PhabricatorHarbormasterApplication extends PhabricatorApplication {
           'disable/(?P<id>\d+)/' => 'HarbormasterPlanDisableController',
           'run/(?P<id>\d+)/' => 'HarbormasterPlanRunController',
           '(?P<id>\d+)/' => 'HarbormasterPlanViewController',
+        ),
+        'unit/' => array(
+          '(?P<id>\d+)/' => 'HarbormasterUnitMessagesController',
+        ),
+        'lint/' => array(
+          '(?P<id>\d+)/' => 'HarbormasterLintMessagesController',
         ),
       ),
     );

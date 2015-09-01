@@ -25,7 +25,7 @@ final class PhabricatorManiphestConfigOptions
       100 => array(
         'name'  => pht('Unbreak Now!'),
         'short' => pht('Unbreak!'),
-        'color' => 'indigo',
+        'color' => 'pink',
         'keywords' => array('unbreak'),
       ),
       90 => array(
@@ -212,16 +212,16 @@ EOTEXT
 
     $status_example = array(
       'open' => array(
-        'name' => 'Open',
+        'name' => pht('Open'),
         'special' => 'default',
       ),
       'closed' => array(
-        'name' => 'Closed',
+        'name' => pht('Closed'),
         'special' => 'closed',
         'closed' => true,
       ),
       'duplicate' => array(
-        'name' => 'Duplicate',
+        'name' => pht('Duplicate'),
         'special' => 'duplicate',
         'closed' => true,
       ),

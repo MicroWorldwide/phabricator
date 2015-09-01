@@ -11,66 +11,55 @@ final class PhabricatorOwnersPackageSearchEngine
     return 'PhabricatorOwnersApplication';
   }
 
-  public function buildSavedQueryFromRequest(AphrontRequest $request) {
-    $saved = new PhabricatorSavedQuery();
-
-    $saved->setParameter(
-      'ownerPHIDs',
-      $this->readUsersFromRequest(
-        $request,
-        'owners',
-        array(
-          PhabricatorProjectProjectPHIDType::TYPECONST,
-        )));
-
-    $saved->setParameter(
-      'repositoryPHIDs',
-      $this->readPHIDsFromRequest(
-        $request,
-        'repositories',
-        array(
-          PhabricatorRepositoryRepositoryPHIDType::TYPECONST,
-        )));
-
-    return $saved;
+  public function newQuery() {
+    return new PhabricatorOwnersPackageQuery();
   }
 
-  public function buildQueryFromSavedQuery(PhabricatorSavedQuery $saved) {
-    $query = id(new PhabricatorOwnersPackageQuery());
+  protected function buildCustomSearchFields() {
+    return array(
+      id(new PhabricatorSearchDatasourceField())
+        ->setLabel(pht('Authority'))
+        ->setKey('authorityPHIDs')
+        ->setAliases(array('authority', 'authorities'))
+        ->setDatasource(new PhabricatorProjectOrUserDatasource()),
+      id(new PhabricatorSearchDatasourceField())
+        ->setLabel(pht('Repositories'))
+        ->setKey('repositoryPHIDs')
+        ->setAliases(array('repository', 'repositories'))
+        ->setDatasource(new DiffusionRepositoryDatasource()),
+      id(new PhabricatorSearchStringListField())
+        ->setLabel(pht('Paths'))
+        ->setKey('paths')
+        ->setAliases(array('path')),
+      id(new PhabricatorSearchCheckboxesField())
+        ->setKey('statuses')
+        ->setLabel(pht('Status'))
+        ->setOptions(
+          id(new PhabricatorOwnersPackage())
+            ->getStatusNameMap()),
+    );
+  }
 
-    $owner_phids = $saved->getParameter('ownerPHIDs', array());
-    if ($owner_phids) {
-      $query->withOwnerPHIDs($owner_phids);
+  protected function buildQueryFromParameters(array $map) {
+    $query = $this->newQuery();
+
+    if ($map['authorityPHIDs']) {
+      $query->withAuthorityPHIDs($map['authorityPHIDs']);
     }
 
-    $repository_phids = $saved->getParameter('repositoryPHIDs', array());
-    if ($repository_phids) {
-      $query->withRepositoryPHIDs($repository_phids);
+    if ($map['repositoryPHIDs']) {
+      $query->withRepositoryPHIDs($map['repositoryPHIDs']);
+    }
+
+    if ($map['paths']) {
+      $query->withPaths($map['paths']);
+    }
+
+    if ($map['statuses']) {
+      $query->withStatuses($map['statuses']);
     }
 
     return $query;
-  }
-
-  public function buildSearchForm(
-    AphrontFormView $form,
-    PhabricatorSavedQuery $saved) {
-
-    $owner_phids = $saved->getParameter('ownerPHIDs', array());
-    $repository_phids = $saved->getParameter('repositoryPHIDs', array());
-
-    $form
-      ->appendControl(
-        id(new AphrontFormTokenizerControl())
-          ->setDatasource(new PhabricatorProjectOrUserDatasource())
-          ->setName('owners')
-          ->setLabel(pht('Owners'))
-          ->setValue($owner_phids))
-      ->appendControl(
-        id(new AphrontFormTokenizerControl())
-          ->setDatasource(new DiffusionRepositoryDatasource())
-          ->setName('repositories')
-          ->setLabel(pht('Repositories'))
-          ->setValue($repository_phids));
   }
 
   protected function getURI($path) {
@@ -81,10 +70,11 @@ final class PhabricatorOwnersPackageSearchEngine
     $names = array();
 
     if ($this->requireViewer()->isLoggedIn()) {
-      $names['owned'] = pht('Owned');
+      $names['authority'] = pht('Owned');
     }
 
     $names += array(
+      'active' => pht('Active Packages'),
       'all' => pht('All Packages'),
     );
 
@@ -98,9 +88,15 @@ final class PhabricatorOwnersPackageSearchEngine
     switch ($query_key) {
       case 'all':
         return $query;
-      case 'owned':
+      case 'active':
         return $query->setParameter(
-          'ownerPHIDs',
+          'statuses',
+          array(
+            PhabricatorOwnersPackage::STATUS_ACTIVE,
+          ));
+      case 'authority':
+        return $query->setParameter(
+          'authorityPHIDs',
           array($this->requireViewer()->getPHID()));
     }
 
@@ -126,9 +122,18 @@ final class PhabricatorOwnersPackageSearchEngine
         ->setHeader($package->getName())
         ->setHref('/owners/package/'.$id.'/');
 
+      if ($package->isArchived()) {
+        $item->setDisabled(true);
+      }
+
       $list->addItem($item);
     }
 
-    return $list;
+    $result = new PhabricatorApplicationSearchResultView();
+    $result->setObjectList($list);
+    $result->setNoDataString(pht('No packages found.'));
+
+    return $result;
+
   }
 }

@@ -5,7 +5,7 @@
  * @task cookie   Managing Cookies
  * @task cluster  Working With a Phabricator Cluster
  */
-final class AphrontRequest {
+final class AphrontRequest extends Phobject {
 
   // NOTE: These magic request-type parameters are automatically included in
   // certain requests (e.g., by phabricator_form(), JX.Request,
@@ -26,7 +26,10 @@ final class AphrontRequest {
   private $requestData;
   private $user;
   private $applicationConfiguration;
+  private $site;
+  private $controller;
   private $uriData;
+  private $cookiePrefix;
 
   public function __construct($host, $path) {
     $this->host = $host;
@@ -74,6 +77,24 @@ final class AphrontRequest {
     //  https://www.djangoproject.com/weblog/2012/oct/17/security/
     $uri = new PhutilURI('http://'.$this->host);
     return $uri->getDomain();
+  }
+
+  public function setSite(AphrontSite $site) {
+    $this->site = $site;
+    return $this;
+  }
+
+  public function getSite() {
+    return $this->site;
+  }
+
+  public function setController(AphrontController $controller) {
+    $this->controller = $controller;
+    return $this;
+  }
+
+  public function getController() {
+    return $this->controller;
   }
 
 

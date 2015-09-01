@@ -542,7 +542,7 @@ final class PhabricatorFile extends PhabricatorFileDAO
           // just bail out.
           throw $status;
         } else {
-          // This is HTTP 2XX, so use the the response body to save the
+          // This is HTTP 2XX, so use the response body to save the
           // file data.
           $params = $params + array(
             'name' => basename($uri),
@@ -882,18 +882,9 @@ final class PhabricatorFile extends PhabricatorFileDAO
   }
 
   public static function buildAllEngines() {
-    $engines = id(new PhutilSymbolLoader())
-      ->setType('class')
-      ->setConcreteOnly(true)
+    return id(new PhutilClassMapQuery())
       ->setAncestorClass('PhabricatorFileStorageEngine')
-      ->selectAndLoadSymbols();
-
-    $results = array();
-    foreach ($engines as $engine_class) {
-      $results[] = newv($engine_class['name'], array());
-    }
-
-    return $results;
+      ->execute();
   }
 
   public function getViewableMimeType() {

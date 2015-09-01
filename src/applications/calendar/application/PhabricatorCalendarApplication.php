@@ -53,15 +53,15 @@ final class PhabricatorCalendarApplication extends PhabricatorApplication {
         'event/' => array(
           'create/'
             => 'PhabricatorCalendarEventEditController',
-          'edit/(?P<id>[1-9]\d*)/'
+          'edit/(?P<id>[1-9]\d*)/(?:(?P<sequence>\d+)/)?'
             => 'PhabricatorCalendarEventEditController',
           'drag/(?P<id>[1-9]\d*)/'
             => 'PhabricatorCalendarEventDragController',
-          'cancel/(?P<id>[1-9]\d*)/'
+          'cancel/(?P<id>[1-9]\d*)/(?:(?P<sequence>\d+)/)?'
             => 'PhabricatorCalendarEventCancelController',
           '(?P<action>join|decline|accept)/(?P<id>[1-9]\d*)/'
             => 'PhabricatorCalendarEventJoinController',
-          'comment/(?P<id>[1-9]\d*)/'
+          'comment/(?P<id>[1-9]\d*)/(?:(?P<sequence>\d+)/)?'
             => 'PhabricatorCalendarEventCommentController',
         ),
       ),

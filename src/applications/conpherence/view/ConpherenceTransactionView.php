@@ -64,14 +64,14 @@ final class ConpherenceTransactionView extends AphrontView {
   public function render() {
     $viewer = $this->getUser();
     if (!$viewer) {
-      throw new Exception(pht('Call setUser() before render()!'));
+      throw new PhutilInvalidStateException('setUser');
     }
 
     require_celerity_resource('conpherence-transaction-css');
 
     $transaction = $this->getConpherenceTransaction();
     switch ($transaction->getTransactionType()) {
-      case ConpherenceTransactionType::TYPE_DATE_MARKER:
+      case ConpherenceTransaction::TYPE_DATE_MARKER:
         return javelin_tag(
           'div',
           array(
@@ -239,13 +239,13 @@ final class ConpherenceTransactionView extends AphrontView {
     $content = null;
     $handles = $this->getHandles();
     switch ($transaction->getTransactionType()) {
-      case ConpherenceTransactionType::TYPE_FILES:
+      case ConpherenceTransaction::TYPE_FILES:
         $content = $transaction->getTitle();
         break;
-      case ConpherenceTransactionType::TYPE_TITLE:
-      case ConpherenceTransactionType::TYPE_PICTURE:
-      case ConpherenceTransactionType::TYPE_PICTURE_CROP:
-      case ConpherenceTransactionType::TYPE_PARTICIPANTS:
+      case ConpherenceTransaction::TYPE_TITLE:
+      case ConpherenceTransaction::TYPE_PICTURE:
+      case ConpherenceTransaction::TYPE_PICTURE_CROP:
+      case ConpherenceTransaction::TYPE_PARTICIPANTS:
       case PhabricatorTransactions::TYPE_VIEW_POLICY:
       case PhabricatorTransactions::TYPE_EDIT_POLICY:
       case PhabricatorTransactions::TYPE_JOIN_POLICY:

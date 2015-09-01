@@ -3,7 +3,7 @@
 /**
  * @task  routing URI Routing
  */
-abstract class AphrontApplicationConfiguration {
+abstract class AphrontApplicationConfiguration extends Phobject {
 
   private $request;
   private $host;
@@ -58,6 +58,7 @@ abstract class AphrontApplicationConfiguration {
    * @phutil-external-symbol class PhabricatorStartup
    */
   public static function runHTTPRequest(AphrontHTTPSink $sink) {
+    PhabricatorStartup::beginStartupPhase('multimeter');
     $multimeter = MultimeterControl::newInstance();
     $multimeter->setEventContext('<http-init>');
     $multimeter->setEventViewer('<none>');
@@ -67,6 +68,7 @@ abstract class AphrontApplicationConfiguration {
     // request object first.
     $write_guard = new AphrontWriteGuard('id');
 
+    PhabricatorStartup::beginStartupPhase('env.init');
     PhabricatorEnv::initializeWebEnvironment();
 
     $multimeter->setSampleRate(
@@ -78,9 +80,10 @@ abstract class AphrontApplicationConfiguration {
     }
 
     // This is the earliest we can get away with this, we need env config first.
+    PhabricatorStartup::beginStartupPhase('log.access');
     PhabricatorAccessLog::init();
     $access_log = PhabricatorAccessLog::getLog();
-    PhabricatorStartup::setGlobal('log.access', $access_log);
+    PhabricatorStartup::setAccessLog($access_log);
     $access_log->setData(
       array(
         'R' => AphrontRequest::getHTTPHeader('Referer', '-'),
@@ -89,6 +92,11 @@ abstract class AphrontApplicationConfiguration {
       ));
 
     DarkConsoleXHProfPluginAPI::hookProfiler();
+
+    // We just activated the profiler, so we don't need to keep track of
+    // startup phases anymore: it can take over from here.
+    PhabricatorStartup::beginStartupPhase('startup.done');
+
     DarkConsoleErrorLogPluginAPI::registerErrorHandler();
 
     $response = PhabricatorSetupCheck::willProcessRequest();
@@ -202,7 +210,9 @@ abstract class AphrontApplicationConfiguration {
       ));
     $multimeter->setEventContext('web.'.$controller_class);
 
+    $request->setController($controller);
     $request->setURIMap($uri_data);
+
     $controller->setRequest($request);
 
     // If execution throws an exception and then trying to render that
@@ -246,13 +256,14 @@ abstract class AphrontApplicationConfiguration {
         if ($response instanceof AphrontWebpageResponse) {
           echo phutil_tag(
             'div',
-            array('style' =>
-              'background: #eeddff;'.
-              'white-space: pre-wrap;'.
-              'z-index: 200000;'.
-              'position: relative;'.
-              'padding: 8px;'.
-              'font-family: monospace',
+            array(
+              'style' =>
+                'background: #eeddff;'.
+                'white-space: pre-wrap;'.
+                'z-index: 200000;'.
+                'position: relative;'.
+                'padding: 8px;'.
+                'font-family: monospace',
             ),
             $unexpected_output);
         }
@@ -274,35 +285,13 @@ abstract class AphrontApplicationConfiguration {
 
 
   /**
-   * Using builtin and application routes, build the appropriate
-   * @{class:AphrontController} class for the request. To route a request, we
-   * first test if the HTTP_HOST is configured as a valid Phabricator URI. If
-   * it isn't, we do a special check to see if it's a custom domain for a blog
-   * in the Phame application and if that fails we error. Otherwise, we test
-   * against all application routes from installed
-   * @{class:PhabricatorApplication}s.
-   *
-   * If we match a route, we construct the controller it points at, build it,
-   * and return it.
-   *
-   * If we fail to match a route, but the current path is missing a trailing
-   * "/", we try routing the same path with a trailing "/" and do a redirect
-   * if that has a valid route. The idea is to canoncalize URIs for consistency,
-   * but avoid breaking noncanonical URIs that we can easily salvage.
-   *
-   * NOTE: We only redirect on GET. On POST, we'd drop parameters and most
-   * likely mutate the request implicitly, and a bad POST usually indicates a
-   * programming error rather than a sloppy typist.
-   *
-   * If the failing path already has a trailing "/", or we can't route the
-   * version with a "/", we call @{method:build404Controller}, which build a
-   * fallback @{class:AphrontController}.
+   * Build a controller to respond to the request.
    *
    * @return pair<AphrontController,dict> Controller and dictionary of request
    *                                      parameters.
    * @task routing
    */
-  final public function buildController() {
+  final private function buildController() {
     $request = $this->getRequest();
 
     // If we're configured to operate in cluster mode, reject requests which
@@ -350,7 +339,9 @@ abstract class AphrontApplicationConfiguration {
       }
     }
 
-    if (PhabricatorEnv::getEnvConfig('security.require-https')) {
+    $site = $this->buildSiteForRequest($request);
+
+    if ($site->shouldRequireHTTPS()) {
       if (!$request->isHTTPS()) {
         $https_uri = $request->getRequestURI();
         $https_uri->setDomain($request->getHost());
@@ -362,151 +353,75 @@ abstract class AphrontApplicationConfiguration {
       }
     }
 
-    $path         = $request->getPath();
-    $host         = $request->getHost();
-    $base_uri     = PhabricatorEnv::getEnvConfig('phabricator.base-uri');
-    $prod_uri     = PhabricatorEnv::getEnvConfig('phabricator.production-uri');
-    $file_uri     = PhabricatorEnv::getEnvConfig(
-      'security.alternate-file-domain');
-    $allowed_uris = PhabricatorEnv::getEnvConfig('phabricator.allowed-uris');
+    $maps = $site->getRoutingMaps();
+    $path = $request->getPath();
 
-    $uris = array_merge(
-      array(
-        $base_uri,
-        $prod_uri,
-      ),
-      $allowed_uris);
+    $result = $this->routePath($maps, $path);
+    if ($result) {
+      return $result;
+    }
 
-    $cdn_routes = array(
-      '/res/',
-      '/file/data/',
-      '/file/xform/',
-      '/phame/r/',
-      );
+    // If we failed to match anything but don't have a trailing slash, try
+    // to add a trailing slash and issue a redirect if that resolves.
 
-    $host_match = false;
-    foreach ($uris as $uri) {
-      if ($host === id(new PhutilURI($uri))->getDomain()) {
-        $host_match = true;
-        break;
+    // NOTE: We only do this for GET, since redirects switch to GET and drop
+    // data like POST parameters.
+    if (!preg_match('@/$@', $path) && $request->isHTTPGet()) {
+      $result = $this->routePath($maps, $path.'/');
+      if ($result) {
+        $slash_uri = $request->getRequestURI()->setPath($path.'/');
+        $external = strlen($request->getRequestURI()->getDomain());
+        return $this->buildRedirectController($slash_uri, $external);
       }
     }
 
-    if (!$host_match) {
-      if ($host === id(new PhutilURI($file_uri))->getDomain()) {
-        foreach ($cdn_routes as $route) {
-          if (strncmp($path, $route, strlen($route)) == 0) {
-            $host_match = true;
-            break;
-          }
-        }
-      }
-    }
-
-    // NOTE: If the base URI isn't defined yet, don't activate alternate
-    // domains.
-    if ($base_uri && !$host_match) {
-
-      try {
-        $blog = id(new PhameBlogQuery())
-          ->setViewer(new PhabricatorUser())
-          ->withDomain($host)
-          ->executeOne();
-      } catch (PhabricatorPolicyException $ex) {
-        throw new Exception(
-          pht(
-            'This blog is not visible to logged out users, so it can not be '.
-            'visited from a custom domain.'));
-      }
-
-      if (!$blog) {
-        if ($prod_uri && $prod_uri != $base_uri) {
-          $prod_str = pht('%s or %s', $base_uri, $prod_uri);
-        } else {
-          $prod_str = $base_uri;
-        }
-        throw new Exception(
-          pht(
-            'Specified domain %s is not configured for Phabricator '.
-            'requests. Please use %s to visit this instance.',
-            $host,
-            $prod_str));
-      }
-
-      // TODO: Make this more flexible and modular so any application can
-      // do crazy stuff here if it wants.
-
-      $path = '/phame/live/'.$blog->getID().'/'.$path;
-    }
-
-    list($controller, $uri_data) = $this->buildControllerForPath($path);
-    if (!$controller) {
-      if (!preg_match('@/$@', $path)) {
-        // If we failed to match anything but don't have a trailing slash, try
-        // to add a trailing slash and issue a redirect if that resolves.
-        list($controller, $uri_data) = $this->buildControllerForPath($path.'/');
-
-        // NOTE: For POST, just 404 instead of redirecting, since the redirect
-        // will be a GET without parameters.
-
-        if ($controller && !$request->isHTTPPost()) {
-          $slash_uri = $request->getRequestURI()->setPath($path.'/');
-
-          $external = strlen($request->getRequestURI()->getDomain());
-          return $this->buildRedirectController($slash_uri, $external);
-        }
-      }
-      return $this->build404Controller();
-    }
-
-    return array($controller, $uri_data);
+    return $this->build404Controller();
   }
-
 
   /**
    * Map a specific path to the corresponding controller. For a description
    * of routing, see @{method:buildController}.
    *
+   * @param list<AphrontRoutingMap> List of routing maps.
+   * @param string Path to route.
    * @return pair<AphrontController,dict> Controller and dictionary of request
    *                                      parameters.
    * @task routing
    */
-  final public function buildControllerForPath($path) {
-    $maps = array();
-
-    $applications = PhabricatorApplication::getAllInstalledApplications();
-    foreach ($applications as $application) {
-      $maps[] = array($application, $application->getRoutes());
+  private function routePath(array $maps, $path) {
+    foreach ($maps as $map) {
+      $result = $map->routePath($path);
+      if ($result) {
+        return array($result->getController(), $result->getURIData());
+      }
     }
+  }
 
-    $current_application = null;
-    $controller_class = null;
-    foreach ($maps as $map_info) {
-      list($application, $map) = $map_info;
+  private function buildSiteForRequest(AphrontRequest $request) {
+    $sites = PhabricatorSite::getAllSites();
 
-      $mapper = new AphrontURIMapper($map);
-      list($controller_class, $uri_data) = $mapper->mapPath($path);
-
-      if ($controller_class) {
-        if ($application) {
-          $current_application = $application;
-        }
+    $site = null;
+    foreach ($sites as $candidate) {
+      $site = $candidate->newSiteForRequest($request);
+      if ($site) {
         break;
       }
     }
 
-    if (!$controller_class) {
-      return array(null, null);
+    if (!$site) {
+      $path = $request->getPath();
+      $host = $request->getHost();
+      throw new Exception(
+        pht(
+          'This request asked for "%s" on host "%s", but no site is '.
+          'configured which can serve this request.',
+          $path,
+          $host));
     }
 
-    $request = $this->getRequest();
+    $request->setSite($site);
 
-    $controller = newv($controller_class, array());
-    if ($current_application) {
-      $controller->setCurrentApplication($current_application);
-    }
-
-    return array($controller, $uri_data);
+    return $site;
   }
 
 }

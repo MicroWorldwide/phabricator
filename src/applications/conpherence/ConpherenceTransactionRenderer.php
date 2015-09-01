@@ -1,6 +1,6 @@
 <?php
 
-final class ConpherenceTransactionRenderer {
+final class ConpherenceTransactionRenderer extends Phobject {
 
   public static function renderTransactions(
     PhabricatorUser $user,
@@ -61,7 +61,7 @@ final class ConpherenceTransactionRenderer {
     // between days. some setup required!
     $previous_transaction = null;
     $date_marker_transaction = id(new ConpherenceTransaction())
-      ->setTransactionType(ConpherenceTransactionType::TYPE_DATE_MARKER)
+      ->setTransactionType(ConpherenceTransaction::TYPE_DATE_MARKER)
       ->makeEphemeral();
     $date_marker_transaction_view = id(new ConpherenceTransactionView())
       ->setUser($user)
